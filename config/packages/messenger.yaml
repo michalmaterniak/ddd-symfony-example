@@ -1,0 +1,46 @@
+framework:
+    messenger:
+        default_bus: command.bus
+        buses:
+            command.bus:
+                middleware:
+                    - doctrine_ping_connection
+                    - doctrine_transaction
+            query.bus:
+            event.bus:
+                default_middleware:
+                    enabled: true
+                    allow_no_handlers: true
+                    allow_no_senders: true
+                middleware:
+                    - App\Shared\Infrastructure\Messenger\Bus\EventBus\Middleware\DefaultDelayMiddleware
+        failure_transport: failed
+
+        serializer:
+            default_serializer: messenger.transport.symfony_serializer
+            symfony_serializer:
+                format: json
+                context: { }
+
+        transports:
+            rabbit:
+                dsn: '%env(MESSENGER_RABBIT_DSN)%'
+                retry_strategy:
+                    service: App\Shared\Infrastructure\Messenger\Transport\RetryStrategy
+            doctrine:
+                dsn: '%env(MESSENGER_DOCTRINE_DSN)%'
+                retry_strategy:
+                    service: App\Shared\Infrastructure\Messenger\Transport\RetryStrategy
+            failed: 'doctrine://default?queue_name=failed&auto_setup=0'
+            sync: 'sync://'
+
+        routing:
+            App\Shared\Application\Command: rabbit
+            App\Shared\Domain\DomainEvent: rabbit
+
+when@test:
+    framework:
+        messenger:
+            transports:
+                rabbit: 'in-memory://'
+                doctrine: 'in-memory://'

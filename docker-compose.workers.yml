@@ -1,0 +1,27 @@
+x-worker: &worker
+    build:
+        context: ./.docker/php85
+    volumes:
+        - ./:/app
+    environment:
+        XDEBUG_MODE: 'off'
+    restart: unless-stopped
+    stop_grace_period: 30s
+    networks:
+        - symfony8
+
+services:
+    worker-rabbit:
+        <<: *worker
+        command: php bin/console messenger:consume rabbit --time-limit=3600
+        depends_on:
+            - rabbitmq
+            - postgres
+        deploy:
+            replicas: 3
+
+    worker-doctrine:
+        <<: *worker
+        command: php bin/console messenger:consume doctrine --time-limit=3600
+        depends_on:
+            - postgres

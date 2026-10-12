@@ -1,0 +1,54 @@
+services:
+    web:
+        build:
+            context: ./.docker/nginx
+        volumes:
+            - ./:/app:cached
+        networks:
+            - symfony8
+    php:
+        build:
+            context: ./.docker/php85
+        volumes:
+            - ./:/app
+        networks:
+            - symfony8
+    postgres:
+        build:
+            context: ./.docker/postgres
+        volumes:
+            - ./.docker/postgres/data:/var/lib/postgresql
+        environment:
+            POSTGRES_USER: root
+            POSTGRES_PASSWORD: root
+            POSTGRES_DB: symfony8
+        networks:
+            - symfony8
+    hostmanager:
+        image: iamluc/docker-hostmanager
+        restart: unless-stopped
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /etc/hosts:/hosts
+        networks:
+            - symfony8
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.1'
+    rabbitmq:
+        build:
+            context: ./.docker/rabbitmq
+        hostname: rabbitmq
+        volumes:
+            - ./.docker/rabbitmq/data:/var/lib/rabbitmq
+        environment:
+            RABBITMQ_DEFAULT_USER: root
+            RABBITMQ_DEFAULT_PASS: root
+        networks:
+            - symfony8
+
+networks:
+    symfony8:
+        name: symfony8
+        driver: bridge

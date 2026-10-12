@@ -1,0 +1,24 @@
+filebeat.autodiscover:
+    providers:
+        - type: docker
+          templates:
+              # only this compose project's containers, without the ELK stack's own logs
+              - condition:
+                    and:
+                        - regexp:
+                              docker.container.name: '^symfony8-'
+                        - not:
+                              regexp:
+                                  docker.container.name: '^symfony8-(elasticsearch|kibana|logstash|filebeat)-'
+                config:
+                    - type: filestream
+                      id: container-${data.docker.container.id}
+                      paths:
+                          - /var/lib/docker/containers/${data.docker.container.id}/*.log
+                      parsers:
+                          - container: ~
+
+output.logstash:
+    hosts: ['logstash:5044']
+
+logging.level: info

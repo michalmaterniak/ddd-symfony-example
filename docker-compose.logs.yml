@@ -1,0 +1,67 @@
+services:
+    elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:9.5.3
+        environment:
+            discovery.type: single-node
+            xpack.security.enabled: 'false'
+            cluster.routing.allocation.disk.threshold_enabled: 'false'
+            ES_JAVA_OPTS: -Xms1g -Xmx1g
+        volumes:
+            - elasticsearch-data:/usr/share/elasticsearch/data
+        ports:
+            - '127.0.0.1:9200:9200'
+        healthcheck:
+            test: ['CMD-SHELL', 'curl -fs http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1']
+            interval: 10s
+            timeout: 10s
+            retries: 30
+        restart: unless-stopped
+        networks:
+            - symfony8
+
+    kibana:
+        image: docker.elastic.co/kibana/kibana:9.5.3
+        environment:
+            ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+        ports:
+            - '127.0.0.1:5601:5601'
+        depends_on:
+            elasticsearch:
+                condition: service_healthy
+        restart: unless-stopped
+        networks:
+            - symfony8
+
+    logstash:
+        image: docker.elastic.co/logstash/logstash:9.5.3
+        environment:
+            LS_JAVA_OPTS: -Xms512m -Xmx512m
+            XPACK_MONITORING_ENABLED: 'false'
+        volumes:
+            - ./.docker/logstash/pipeline:/usr/share/logstash/pipeline:ro
+            - ./.docker/logstash/templates:/usr/share/logstash/templates:ro
+        depends_on:
+            elasticsearch:
+                condition: service_healthy
+        restart: unless-stopped
+        networks:
+            - symfony8
+
+    filebeat:
+        image: docker.elastic.co/beats/filebeat:9.5.3
+        user: root
+        command: filebeat -e --strict.perms=false
+        volumes:
+            - ./.docker/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+            - /var/lib/docker/containers:/var/lib/docker/containers:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - filebeat-data:/usr/share/filebeat/data
+        depends_on:
+            - logstash
+        restart: unless-stopped
+        networks:
+            - symfony8
+
+volumes:
+    elasticsearch-data:
+    filebeat-data:
