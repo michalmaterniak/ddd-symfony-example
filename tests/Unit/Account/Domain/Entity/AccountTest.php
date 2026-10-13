@@ -47,6 +47,8 @@ final class AccountTest extends TestCase
         // then
         self::assertTrue($this->accountId->equals($account->getId()));
         self::assertSame([], $account->getNewAccountEntries());
+        self::assertSame(0, $account->credit()->value);
+        self::assertSame(0, $account->debit()->value);
     }
 
     #[Test]
@@ -205,6 +207,36 @@ final class AccountTest extends TestCase
                 $events[3]->entryDebit->value,
             ],
         );
+    }
+
+    #[Test]
+    public function recordCreditAddsToAccountCreditOnly(): void
+    {
+        // given
+        $account = $this->existingAccount();
+
+        // when
+        $account->recordCredit($this->creditDto(100));
+        $account->recordCredit($this->creditDto(50));
+
+        // then
+        self::assertSame(150, $account->credit()->value);
+        self::assertSame(0, $account->debit()->value);
+    }
+
+    #[Test]
+    public function recordDebitAddsToAccountDebitOnly(): void
+    {
+        // given
+        $account = $this->existingAccount();
+
+        // when
+        $account->recordDebit($this->debitDto(30));
+        $account->recordDebit($this->debitDto(20));
+
+        // then
+        self::assertSame(0, $account->credit()->value);
+        self::assertSame(50, $account->debit()->value);
     }
 
     #[Test]

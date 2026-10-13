@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Account\Application\Listener;
 
-use App\Account\Domain\Entity\AccountEntry;
 use App\Account\Domain\Event\AccountCreditUpdated;
 use App\Account\Domain\Repository\AccountRepository;
 use App\Account\Domain\ValueObject\AccountEntrySide;

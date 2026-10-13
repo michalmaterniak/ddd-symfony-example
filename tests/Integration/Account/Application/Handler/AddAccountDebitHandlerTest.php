@@ -74,6 +74,24 @@ final class AddAccountDebitHandlerTest extends KernelTestCase
     }
 
     #[Test]
+    public function updatesAccountDebitTotalAndVersion(): void
+    {
+        // given
+        $this->createAccount();
+
+        // when
+        $this->handler->__invoke($this->command(70));
+        $this->handler->__invoke($this->command(5));
+
+        // then
+        $row = $this->entityManager->getConnection()->fetchAssociative(
+            'SELECT credit, debit, version FROM account WHERE id = :id',
+            ['id' => $this->accountId->toRfc4122()],
+        );
+        self::assertSame(['credit' => 0, 'debit' => 75, 'version' => 3], $row);
+    }
+
+    #[Test]
     public function publishesDebitUpdatedEventToRabbit(): void
     {
         // given

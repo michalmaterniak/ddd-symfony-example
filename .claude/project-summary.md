@@ -68,12 +68,13 @@ Mapowanie Doctrine: atrybuty, tylko katalog `src/Account/Domain/Entity` (alias `
 
 ## Kluczowe decyzje modelu
 
-- `Account`: id (UUID), unikalne `name`, `description`, `created_at`. **Agregat nie zna sum `credit`/`debit`**
-  (decyzja z 2026-10-13): nie ma ich w tabeli, encji ani zdarzeniach. Saldo, gdy będzie potrzebne, ma być pobierane
-  w warstwie aplikacji i przekazywane w DTO. `DoctrineAccountRepository` to zwykłe `find()` / `findOneBy()`.
+- `Account`: id (UUID), unikalne `name`, `description`, `created_at`, sumy `credit` / `debit` (typ `amount`, getter
+  `credit(): AccountCredit` / `debit(): AccountDebit`) oraz `version` (`#[ORM\Version]`, optimistic locking; decyzja
+  z 2026-10-13, odwraca wcześniejszą „agregat nie zna sum”). Zdarzenia nadal niosą tylko kwotę wpisu.
+  `DoctrineAccountRepository` to zwykłe `find()` / `findOneBy()`.
   Konstruktor (przez `Account::create()`) rejestruje zdarzenie `AccountCreated`.
-- `Account::recordCredit()` / `recordDebit()` tworzą `AccountEntry` (trzymany w `newAccountEntries`) i rejestrują
-  `AccountCreditUpdated` / `AccountDebitUpdated` (tylko kwota wpisu, bez sumy konta).
+- `Account::recordCredit()` / `recordDebit()` tworzą `AccountEntry` (trzymany w `newAccountEntries`) i zwiększają sumę `credit` / `debit`
+  konta i rejestrują `AccountCreditUpdated` / `AccountDebitUpdated` (tylko kwota wpisu, bez sumy konta).
   Handler pobiera wpisy przez `getNewAccountEntries()`, zapisuje je `AccountEntryRepository::new()` i publikuje
   zdarzenia przez `EventBus::publish($account->pullDomainEvents())`. Brak konta →
   `UnrecoverableMessageHandlingException`.
@@ -135,7 +136,9 @@ W-5 (CLI synchroniczne), S-1.
 - Zdarzenia publikują handlery (repozytorium tego nie robi). `MessengerEventBus` dodaje
   `DispatchAfterCurrentBusStamp`, więc w workerze zdarzenia wychodzą po commicie `doctrine_transaction`
   (bez outboxa: awaria między commitem a wysyłką gubi zdarzenie).
-- Brak blokad i wersjonowania: gałąź `OptimisticLockException` w `RetryStrategy` w praktyce nie ma czego łapać.
+- Równoległe zapisy na tym samym koncie kończą się `OptimisticLockException` przy flushu; `RetryStrategy` ponawia je
+  bez limitu (co 1 s), a `doctrine_ping_connection` resetuje zamknięty EntityManager przed kolejną wiadomością.
+- `AccountCreditAddedListenerTest::logsNothingWhenAccountExists` pada (listener loguje `info`, test oczekuje braku logów).
 - Nazwy listenerów nie pasują do zdarzeń (`AccountCreditAddedListener` obsługuje `AccountCreditUpdated`).
 - Duplikat nazwy konta w trybie async (worker) nadal jest ponawiany 4× jak błąd przejściowy (brak sprawdzenia
   w handlerze ani walidacji `AccountName`); w CLI (sync) kończy się błędem.

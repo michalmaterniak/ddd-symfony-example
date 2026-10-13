@@ -18,6 +18,7 @@ use App\Account\Infrastructure\Doctrine\Repository\DoctrineAccountRepository;
 use App\Tests\Support\Messenger\DispatchedMessagesAssertionTrait;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\OptimisticLockException;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Clock\Clock;
@@ -117,6 +118,52 @@ final class DoctrineAccountRepositoryTest extends KernelTestCase
         self::assertCount(2, $events);
         self::assertInstanceOf(AccountCreated::class, $events[0]);
         self::assertInstanceOf(AccountCreditUpdated::class, $events[1]);
+    }
+
+    #[Test]
+    public function updateIncrementsVersionAndStoresTotals(): void
+    {
+        // given
+        $accountId = new AccountId();
+        $account = $this->createAccount($accountId, 'Savings');
+        $this->repository->new($account);
+        $account->recordCredit(
+            new AddAccountCreditDto(new AccountEntryId(), new AccountCredit(10), new DateTimeImmutable()),
+        );
+
+        // when
+        $this->repository->update($account);
+
+        // then
+        self::assertSame(2, $account->version());
+        $row = $this->entityManager->getConnection()->fetchAssociative(
+            'SELECT credit, debit, version FROM account WHERE id = :id',
+            ['id' => $accountId->toRfc4122()],
+        );
+        self::assertSame(['credit' => 10, 'debit' => 0, 'version' => 2], $row);
+    }
+
+    #[Test]
+    public function updateOfStaleAccountFailsWithOptimisticLockException(): void
+    {
+        // given
+        $accountId = new AccountId();
+        $account = $this->createAccount($accountId, 'Savings');
+        $this->repository->new($account);
+        // another worker updated the same account in the meantime
+        $this->entityManager->getConnection()->executeStatement(
+            'UPDATE account SET credit = credit + 5, version = version + 1 WHERE id = :id',
+            ['id' => $accountId->toRfc4122()],
+        );
+        $account->recordCredit(
+            new AddAccountCreditDto(new AccountEntryId(), new AccountCredit(10), new DateTimeImmutable()),
+        );
+
+        // then
+        $this->expectException(OptimisticLockException::class);
+
+        // when
+        $this->repository->update($account);
     }
 
     private function createAccount(AccountId $accountId, string $name): Account

@@ -115,6 +115,7 @@ Opcjonalny stos ELK (Kibana na `http://127.0.0.1:5601`):
 ```bash
 make up-logs
 make ps-logs
+make clear-logs   # usuwa indeksy logów docker-logs-* (Elasticsearch musi działać)
 make down-logs
 ```
 

@@ -15,18 +15,23 @@ use Doctrine\Persistence\ObjectManager;
 
 class AccountFixtures extends Fixture
 {
+    private const int ADDITIONAL_ACCOUNTS = 49;
+
     public function load(ObjectManager $manager): void
     {
-        $accountId = AccountId::fromString('9fc62b77-8dc6-4493-b245-6020d30573bd');
-        $account = Account::create(
-            new CreateAccountDto(
-                $accountId,
-                new AccountName('account'),
-                new AccountDescription('Account for dev testing'),
-                new DateTimeImmutable('2026-09-30 21:37:00'),
-            ),
-        );
-        $manager->persist($account);
+        for ($i = 1; $i <= self::ADDITIONAL_ACCOUNTS + 1; ++$i) {
+            $manager->persist(
+                Account::create(
+                    new CreateAccountDto(
+                        AccountId::fromString(\sprintf('00000000-0000-4000-8000-%012d', $i)),
+                        new AccountName(\sprintf('account-%02d', $i)),
+                        new AccountDescription(\sprintf('Test account %d for dev testing', $i)),
+                        new DateTimeImmutable('2026-09-30 21:37:00'),
+                    ),
+                ),
+            );
+        }
+
         $manager->flush();
     }
 }

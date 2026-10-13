@@ -54,3 +54,7 @@ down-logs:
 	$(LOGS_COMPOSE) rm -f $(LOGS_SERVICES)
 ps-logs:
 	$(LOGS_COMPOSE) ps $(LOGS_SERVICES)
+# deletes log indices (docker-logs-*) by name; ES rejects wildcard deletes by default
+clear-logs:
+	$(LOGS_COMPOSE) exec -T elasticsearch sh -c 'for index in $$(curl -sf "http://localhost:9200/_cat/indices/docker-logs-*?h=index"); do \
+		curl -sf -X DELETE "http://localhost:9200/$$index" >/dev/null && echo "deleted $$index"; done'
