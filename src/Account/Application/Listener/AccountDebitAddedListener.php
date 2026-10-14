@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Account\Application\Listener;
 
-use App\Account\Domain\Event\AccountCreditUpdated;
+use App\Account\Domain\Event\AccountDebitUpdated;
 use App\Account\Domain\Repository\AccountRepository;
 use App\Account\Domain\ValueObject\AccountEntrySide;
 use Psr\Log\LoggerInterface;
@@ -19,7 +19,7 @@ class AccountDebitAddedListener
     ) {
     }
 
-    public function __invoke(AccountCreditUpdated $event): void
+    public function __invoke(AccountDebitUpdated $event): void
     {
         if (null === $this->accountRepository->findById($event->accountId)) {
             $this->logger->critical('Account not found', ['accountId' => $event->accountId]);
@@ -32,7 +32,7 @@ class AccountDebitAddedListener
             [
                 'side' => AccountEntrySide::DEBIT,
                 'accountId' => $event->accountId,
-                'amount' => $event->entryCredit,
+                'amount' => $event->entryDebit,
                 'effectiveAt' => $event->effectiveAt,
                 'accountEntryId' => $event->accountEntryId,
             ],

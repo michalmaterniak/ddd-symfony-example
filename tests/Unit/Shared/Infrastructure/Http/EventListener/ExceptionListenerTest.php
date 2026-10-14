@@ -10,6 +10,7 @@ use App\Shared\Infrastructure\Http\Exception\RequestValidationException;
 use App\Shared\Infrastructure\Http\Exception\UrlParametersValidationException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 use RuntimeException;
 use stdClass;
 use Symfony\Component\HttpFoundation\Request;
@@ -49,7 +50,7 @@ final class ExceptionListenerTest extends TestCase
         ])));
 
         // when
-        new ExceptionListener()($event);
+        new ExceptionListener(new NullLogger())($event);
 
         // then
         self::assertResponse(
@@ -76,7 +77,7 @@ final class ExceptionListenerTest extends TestCase
         ])));
 
         // when
-        new ExceptionListener()($event);
+        new ExceptionListener(new NullLogger())($event);
 
         // then
         self::assertResponse(
@@ -100,7 +101,7 @@ final class ExceptionListenerTest extends TestCase
         $event = $this->event(new NotFoundHttpException('Account not found.'));
 
         // when
-        new ExceptionListener()($event);
+        new ExceptionListener(new NullLogger())($event);
 
         // then
         self::assertResponse(
@@ -117,7 +118,7 @@ final class ExceptionListenerTest extends TestCase
         $event = $this->event(new NotFoundHttpException());
 
         // when
-        new ExceptionListener()($event);
+        new ExceptionListener(new NullLogger())($event);
 
         // then
         self::assertResponse(
@@ -134,7 +135,7 @@ final class ExceptionListenerTest extends TestCase
         $event = $this->event($this->domainException('Account creation failed'));
 
         // when
-        new ExceptionListener()($event);
+        new ExceptionListener(new NullLogger())($event);
 
         // then
         self::assertResponse(
@@ -154,7 +155,7 @@ final class ExceptionListenerTest extends TestCase
         ));
 
         // when
-        new ExceptionListener()($event);
+        new ExceptionListener(new NullLogger())($event);
 
         // then
         self::assertResponse(
@@ -165,16 +166,20 @@ final class ExceptionListenerTest extends TestCase
     }
 
     #[Test]
-    public function leavesOtherExceptionsToFramework(): void
+    public function rendersOtherExceptionsAsGenericInternalError(): void
     {
         // given
         $event = $this->event(new RuntimeException('boom'));
 
         // when
-        new ExceptionListener()($event);
+        new ExceptionListener(new NullLogger())($event);
 
         // then
-        self::assertNull($event->getResponse());
+        self::assertResponse(
+            Response::HTTP_INTERNAL_SERVER_ERROR,
+            ['type' => 'internal-error', 'status' => 500, 'message' => 'Internal error.'],
+            $event,
+        );
     }
 
     /**

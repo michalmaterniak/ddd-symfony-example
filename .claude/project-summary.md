@@ -146,6 +146,33 @@ Body JSON (wszystkie pola wymagane, dodatkowe pola odrzucane):
   - `422` `{"type": "domain-validation", ...}` dla `DomainException` (także opakowanego w `HandlerFailedException`),
   - `405` dla innych metod niż `POST`.
 
+## Logowanie
+
+- Monolog → stderr kontenera (JSON) → Filebeat → Logstash → Elasticsearch (`docker-logs-*`, `app.context` /
+  `app.extra` typu `flattened`). Zasada: **wszystko od `info` w górę, ze wszystkich kanałów** (HTTP i workery) idzie do
+  ES. `dev`: handler `stderr` (`info`, JSON) + `main` do pliku `var/log/dev.log` (`debug`, lokalnie);
+  `prod`: tylko `main` na stderr (`info`, JSON), bez `fingers_crossed`; `test`: plik + `test` w pamięci.
+  Workery czytają konfigurację przy starcie, więc po zmianie trzeba je zrestartować.
+- Każdy wpis ma `extra.service` (`APP_SERVICE_NAME`, domyślnie `symfony8`, `ServiceNameProcessor`) oraz, w trakcie
+  żądania HTTP, `extra.correlationId` (`CorrelationIdProcessor` + `CorrelationIdStorage`). W Kibanie:
+  `app.extra.service: symfony8 and app.extra.correlationId: "<uuid>"`.
+- `HttpLoggingListener` (`Shared/Infrastructure/Http/Logging`, kanał `http`, zawsze `info`):
+  - `HttpRequest` na `kernel.request` (priorytet 512, przed routerem, więc 404/405 też są logowane): metoda, URI, query,
+    nagłówki, payload, pliki (tylko metadane), IP. `correlationId` brany z nagłówka `X-Correlation-Id`, jeśli to
+    poprawny UUID; inaczej nowy UUID v7 (zły nagłówek → `invalidClientCorrelationId`);
+  - `X-Correlation-Id` w każdej odpowiedzi (`kernel.response`, priorytet -2048);
+  - `HttpResponse` na `kernel.terminate`: status, nagłówki, payload, route, parametry, kontroler, klasa wyjątku
+    (zapamiętana na `kernel.exception` z priorytetem 1024), `durationMs`, `memoryPeakBytes`;
+  - `HttpRequestAborted` (`critical`) z `register_shutdown_function()`, gdy proces skończył się bez `HttpResponse`
+    (z rezerwą pamięci na OOM).
+  - Pomijane ścieżki: `/_profiler`, `/_wdt`. Maskowanie (`SensitiveDataMasker`): nagłówki `Authorization`, `Cookie`,
+    `Set-Cookie`, `X-Api-Key` itp. oraz klucze payloadu/query z `password`, `secret`, `token`, `apikey`… i `iban`,
+    `cardNumber`, `cvv`, `cvc`, `pin`. Payload obcinany do `HTTP_LOG_MAX_PAYLOAD_BYTES` (16 KB) z `payloadTruncated`.
+- `ExceptionListener` loguje obsłużone wyjątki sam (zatrzymuje propagację, więc `ErrorListener` Symfony ich nie
+  loguje): 400/422 `warning`, 404 `info`, reszta → odpowiedź 500 „Internal error.” i `critical`.
+- Propagacja `correlationId` do Messengera (stamp, worker bez generowania nowego id) to osobny, jeszcze niezrobiony krok.
+- Testy: handler `monolog.handler.test` (`when@test`, kanały `http`, `app`); `HttpLoggingTest` (funkcjonalny).
+
 ## Testy
 
 - `tests/Unit` (VO, encje, typy Doctrine, RetryStrategy, DefaultDelayMiddleware, `PostAddAccountEntryRequest`,

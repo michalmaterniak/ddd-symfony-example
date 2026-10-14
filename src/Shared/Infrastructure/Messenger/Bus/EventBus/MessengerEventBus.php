@@ -8,12 +8,14 @@ use App\Shared\Application\Bus\EventBus;
 use App\Shared\Application\Bus\MessageOption;
 use App\Shared\Application\Bus\NullMessageOption;
 use App\Shared\Infrastructure\Messenger\Bus\MessageOptionStamps;
+use Symfony\Component\DependencyInjection\Attribute\Target;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\MessageBusInterface;
 
 final readonly class MessengerEventBus implements EventBus
 {
     public function __construct(
+        #[Target('event.bus')]
         private MessageBusInterface $eventBus,
     ) {
     }
