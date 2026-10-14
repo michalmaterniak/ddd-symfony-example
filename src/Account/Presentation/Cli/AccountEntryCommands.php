@@ -127,7 +127,7 @@ readonly class AccountEntryCommands
             return \sprintf('Invalid account id "%s".', $accountId);
         }
 
-        if ($amount <= 0) {
+        if (0 >= $amount) {
             return \sprintf('%s must be greater than zero.', ucfirst($side->value));
         }
 

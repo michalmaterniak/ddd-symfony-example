@@ -67,7 +67,7 @@ readonly class StressTestForAccountUpdate
                     effectiveAt: new DateTimeImmutable(),
                 ),
             ];
-            if ($debitTotal > 0) {
+            if (0 < $debitTotal) {
                 $messages[] = new AddAccountEntryDebitCommand(
                     accountEntryId: new AccountEntryId(),
                     accountId: new AccountId($accountId),
@@ -89,7 +89,7 @@ readonly class StressTestForAccountUpdate
 
         $io->success(\sprintf(
             'Dispatched %d messages for account %s: credits %d, debits %d, net %d.',
-            $iterations * ($debitTotal > 0 ? 2 : 1),
+            $iterations * (0 < $debitTotal ? 2 : 1),
             $accountId,
             $creditTotal,
             $debitTotal,
@@ -141,7 +141,7 @@ readonly class StressTestForAccountUpdate
             return \sprintf('Invalid account id "%s".', $accountId);
         }
 
-        if ($iterations <= 0) {
+        if (0 >= $iterations) {
             return 'Iterations must be greater than zero.';
         }
 
@@ -149,11 +149,11 @@ readonly class StressTestForAccountUpdate
             return \sprintf('Amount must be at least %d (one minor unit per iteration).', $iterations);
         }
 
-        if ($debitRatio < 0) {
+        if (0 > $debitRatio) {
             return 'Debit ratio must not be negative.';
         }
 
-        if ($debitRatio > 0 && $debitTotal < $iterations) {
+        if (0 < $debitRatio && $debitTotal < $iterations) {
             return \sprintf(
                 'Debit total %d is too small for %d iterations, increase the amount or debit ratio.',
                 $debitTotal,

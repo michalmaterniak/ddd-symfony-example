@@ -11,9 +11,14 @@ readonly class Amount implements Stringable
 {
     final public function __construct(public int $value)
     {
-        if ($value < 0) {
+        if (0 > $value) {
             throw new InvalidArgumentException('Amount must be greater than or equal to zero');
         }
+    }
+
+    public function __toString(): string
+    {
+        return (string) $this->value;
     }
 
     public function addAmount(self ...$other): static
@@ -29,10 +34,5 @@ readonly class Amount implements Stringable
     public static function copy(self $balance): static
     {
         return new static($balance->value);
-    }
-
-    public function __toString(): string
-    {
-        return (string) $this->value;
     }
 }

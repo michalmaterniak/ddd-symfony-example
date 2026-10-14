@@ -11,7 +11,7 @@ readonly class AccountDescription
     public function __construct(
         public string $value,
     ) {
-        if (\strlen($value) > 25500) {
+        if (25500 < \strlen($value)) {
             throw new InvalidArgumentException('Account description must be less than 25500 characters');
         }
     }

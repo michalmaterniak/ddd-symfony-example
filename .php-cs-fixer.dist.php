@@ -24,7 +24,7 @@ return (new PhpCsFixer\Config())
         'yoda_style' => [
             'equal' => true,
             'identical' => true,
-            'less_and_greater' => false,
+            'less_and_greater' => true,
         ],
         'declare_strict_types' => true,
         'strict_comparison' => true,
@@ -44,6 +44,26 @@ return (new PhpCsFixer\Config())
             'import_functions' => false,
         ],
         'no_unused_imports' => true,
+        // static methods are not split out, so test data providers stay next to their tests
+        'ordered_class_elements' => [
+            'order' => [
+                'use_trait',
+                'case',
+                'constant_public',
+                'constant_protected',
+                'constant_private',
+                'property_public',
+                'property_protected',
+                'property_private',
+                'construct',
+                'destruct',
+                'magic',
+                'phpunit',
+                'method_public',
+                'method_protected',
+                'method_private',
+            ],
+        ],
         'array_syntax' => ['syntax' => 'short'],
         'trailing_comma_in_multiline' => [
             'elements' => ['arguments', 'arrays', 'match', 'parameters'],
