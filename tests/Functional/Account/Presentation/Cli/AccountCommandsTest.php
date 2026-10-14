@@ -27,7 +27,7 @@ final class AccountCommandsTest extends KernelTestCase
     }
 
     #[Test]
-    public function createsAccountSynchronously(): void
+    public function createsAccountAsynchronously(): void
     {
         // when
         $status = $this->tester->execute(['name' => 'Savings', 'description' => 'savings account']);

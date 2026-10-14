@@ -4,15 +4,19 @@ framework:
         buses:
             command.bus:
                 middleware:
+                    - App\Shared\Infrastructure\Messenger\Bus\Middleware\CorrelationIdMiddleware
                     - doctrine_ping_connection
                     - doctrine_transaction
             query.bus:
+                middleware:
+                    - App\Shared\Infrastructure\Messenger\Bus\Middleware\CorrelationIdMiddleware
             event.bus:
                 default_middleware:
                     enabled: true
                     allow_no_handlers: true
                     allow_no_senders: true
                 middleware:
+                    - App\Shared\Infrastructure\Messenger\Bus\Middleware\CorrelationIdMiddleware
                     - App\Shared\Infrastructure\Messenger\Bus\EventBus\Middleware\DefaultDelayMiddleware
         failure_transport: failed
 

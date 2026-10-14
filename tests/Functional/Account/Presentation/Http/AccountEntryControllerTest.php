@@ -12,6 +12,7 @@ use App\Account\Domain\Repository\AccountRepository;
 use App\Account\Domain\ValueObject\AccountDescription;
 use App\Account\Domain\ValueObject\AccountId;
 use App\Account\Domain\ValueObject\AccountName;
+use App\Shared\Infrastructure\Messenger\Stamp\CorrelationIdStamp;
 use App\Tests\Support\Messenger\DispatchedMessagesAssertionTrait;
 use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -19,6 +20,7 @@ use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Messenger\Transport\InMemory\InMemoryTransport;
 
 final class AccountEntryControllerTest extends WebTestCase
 {
@@ -78,6 +80,29 @@ final class AccountEntryControllerTest extends WebTestCase
         self::assertEquals(new DateTimeImmutable('2026-10-01T12:00:00+00:00'), $command->effectiveAt);
 
         self::assertSame(['id' => $command->accountEntryId->toRfc4122()], $this->responseJson());
+    }
+
+    #[Test]
+    public function passesRequestCorrelationIdToQueuedCommand(): void
+    {
+        // given
+        $correlationId = '0192a6e8-1c2d-7f00-8a3b-4c5d6e7f8091';
+
+        // when
+        $this->client->request(
+            'POST',
+            '/api/v1/account/'.self::ACCOUNT_ID.'/account-entry',
+            server: ['CONTENT_TYPE' => 'application/json', 'HTTP_X_CORRELATION_ID' => $correlationId],
+            content: json_encode(self::payload(), \JSON_THROW_ON_ERROR),
+        );
+
+        // then
+        self::assertResponseStatusCodeSame(Response::HTTP_ACCEPTED);
+        $transport = self::getContainer()->get('messenger.transport.rabbit');
+        self::assertInstanceOf(InMemoryTransport::class, $transport);
+        $sent = [...$transport->getSent()];
+        self::assertCount(1, $sent);
+        self::assertSame($correlationId, $sent[0]->last(CorrelationIdStamp::class)?->correlationId);
     }
 
     #[Test]

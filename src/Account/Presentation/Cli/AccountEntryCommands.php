@@ -108,10 +108,10 @@ readonly class AccountEntryCommands
 
         $effectiveAt ??= new DateTimeImmutable();
 
-        $this->commandBus->dispatch($createCommand($effectiveAt), MessageModeOption::sync());
+        $this->commandBus->dispatch($createCommand($effectiveAt), MessageModeOption::async());
 
         $io->success(\sprintf(
-            'Added %s of %d to account %s (effective at %s).',
+            'Ordered %s of %d to account %s (effective at %s).',
             $side->value,
             $amount,
             $accountId,

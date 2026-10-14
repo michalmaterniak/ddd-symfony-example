@@ -16,6 +16,7 @@ use App\Account\Domain\ValueObject\AccountDescription;
 use App\Account\Domain\ValueObject\AccountEntryId;
 use App\Account\Domain\ValueObject\AccountId;
 use App\Account\Domain\ValueObject\AccountName;
+use App\Shared\Infrastructure\Messenger\Stamp\CorrelationIdStamp;
 use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -81,5 +82,25 @@ final class MessageSerializationTest extends KernelTestCase
 
         // then
         self::assertEquals($message, $decoded);
+    }
+
+    #[Test]
+    public function correlationIdStampSurvivesTransportSerialization(): void
+    {
+        // given
+        /** @var SerializerInterface $serializer */
+        $serializer = self::getContainer()->get('messenger.transport.symfony_serializer');
+        $stamp = new CorrelationIdStamp('0192a6e8-1c2d-7f00-8a3b-4c5d6e7f8091');
+        $envelope = new Envelope(new AccountCreated(
+            new AccountId('9fc62b77-8dc6-4493-b245-6020d30573bd'),
+            new AccountName('Savings'),
+            new DateTimeImmutable('2026-10-12T10:00:00+02:00'),
+        ), [$stamp]);
+
+        // when
+        $decoded = $serializer->decode($serializer->encode($envelope));
+
+        // then
+        self::assertEquals($stamp, $decoded->last(CorrelationIdStamp::class));
     }
 }

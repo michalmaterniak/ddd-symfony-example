@@ -1,6 +1,6 @@
 # Podsumowanie projektu `symfony8` (kontekst dla Claude)
 
-> Stan na 2026-10-14 (commit `cdfe057` + niezacommitowane zmiany, gałąź `master`). Szczegóły uruchomienia są w `README.md`,
+> Stan na 2026-10-15 (commit `fb7ed78` + niezacommitowane zmiany, gałąź `master`). Szczegóły uruchomienia są w `README.md`,
 > zasady pisania kodu w `AGENTS.md`. Raporty review (skill `project-review`) trafiają do `.claude/review/`
 > (pierwszy: `2026-10-12_23_48_31.md`).
 
@@ -8,7 +8,7 @@
 
 Konta księgowe z zapisami Winien (debit) / Ma (credit). Styl DDD + CQRS na Symfony Messenger.
 Obsługa przez komendy konsolowe i jeden endpoint REST (`POST /api/v1/account/{accountId}/account-entry`).
-Zmiany stanu z API idą asynchronicznie przez RabbitMQ i workery (CLI dispatchuje synchronicznie).
+Zmiany stanu idą asynchronicznie przez RabbitMQ i workery (wyjątek: `app:account:create` dispatchuje synchronicznie).
 
 ## Stos
 
@@ -53,7 +53,7 @@ src/
 │   │   │                         # account_description, amount (side to natywny Types::ENUM)
 │   │   └── DataFixtures/
 │   └── Presentation/
-│       ├── Cli/                  # AccountCommands, AccountEntryCommands, StressTestForAccountUpdate
+│       ├── Cli/                  # AccountCommands, AccountEntryCommands
 │       └── Http/                 # PostAccountEntryController, Request/PostAddAccountEntryRequest
 └── Shared/
     ├── Application/Command.php   # interfejs-marker komend (routing → rabbit)
@@ -65,12 +65,16 @@ src/
     │                             # ValueObject/Amount, Exception/DomainException
     ├── Presentation/             # RequestValidation (interfejs obiektów requestu: validate())
     └── Infrastructure/
+        ├── Console/              # EventListener/ConsoleCorrelationIdListener (nowy correlationId na komendę CLI)
         ├── Http/                 # EventListener/ExceptionListener (wyjątki → JSON),
         │                         # Exception/RequestValidationException (400),
-        │                         # Exception/UrlParametersValidationException (404)
+        │                         # Exception/UrlParametersValidationException (404),
+        │                         # Logging/: HttpLoggingListener, HttpMessageNormalizer, SensitiveDataMasker
+        ├── Logging/              # CorrelationIdStorage, CorrelationIdProcessor, ServiceNameProcessor
         └── Messenger/            # Bus/: MessengerCommandBus / MessengerEventBus, MessageOptionStamps
-                                  # (MessageOption → stampy), EventBus/Middleware/DefaultDelayMiddleware (event.bus, 2 s);
-                                  # Transport/RetryStrategy
+                                  # (MessageOption → stampy), Middleware/CorrelationIdMiddleware (wszystkie szyny),
+                                  # EventBus/Middleware/DefaultDelayMiddleware (event.bus, 2 s);
+                                  # Stamp/CorrelationIdStamp; Transport/RetryStrategy
 ```
 
 Mapowanie Doctrine: atrybuty, tylko katalog `src/Account/Domain/Entity` (alias `Domain`).
@@ -98,9 +102,10 @@ Mapowanie Doctrine: atrybuty, tylko katalog `src/Account/Domain/Entity` (alias `
 
 ## Messenger (`config/packages/messenger.yaml`)
 
-- `command.bus` (domyślny): middleware `doctrine_ping_connection`, `doctrine_transaction`.
-- `event.bus`: `allow_no_handlers`, `allow_no_senders`, `DefaultDelayMiddleware` (DelayStamp 2 s dla nowych wiadomości).
-- `query.bus`: zarezerwowany, nieużywany.
+- `command.bus` (domyślny): middleware `CorrelationIdMiddleware`, `doctrine_ping_connection`, `doctrine_transaction`.
+- `event.bus`: `allow_no_handlers`, `allow_no_senders`, `CorrelationIdMiddleware`, `DefaultDelayMiddleware`
+  (DelayStamp 2 s dla nowych wiadomości).
+- `query.bus`: zarezerwowany, nieużywany (ma tylko `CorrelationIdMiddleware`).
 - Routing: `App\Shared\Application\Command` → `rabbit`, `App\Shared\Domain\DomainEvent` → `rabbit`.
 - `RetryStrategy`: opóźnienia 1/2/3/4 s, maks. 4 próby; `OptimisticLockException` ponawiany bez limitu
   (przeszukuje łańcuch wyjątków, w tym `HandlerFailedException`).
@@ -115,12 +120,15 @@ Mapowanie Doctrine: atrybuty, tylko katalog `src/Account/Domain/Entity` (alias `
 bin/console app:account:create <name> <description>
 bin/console app:account:add-credit <accountId> <amount> [--effective-at=...]
 bin/console app:account:add-debit  <accountId> <amount> [--effective-at=...]
-bin/console app:account:stress-test <accountId> <amount> [--iterations=1000] [--debit-ratio=50]
 ```
 
-`create`, `add-credit`, `add-debit` dispatchują z `MessageModeOption::sync()` (błąd → wyjątek, kod ≠ 0; zdarzenia nadal
-async). `stress-test` zostaje asynchroniczny: wysyła losowo pomieszane credit/debit o sumie netto = `amount`
-do workerów `rabbit`.
+`create` dispatchuje z `MessageModeOption::sync()` (błąd → wyjątek, kod ≠ 0; zdarzenia nadal async). `add-credit` /
+`add-debit` (od 2026-10-14) z `MessageModeOption::async()`: komenda do `rabbit`, komunikat „Ordered …”, brak konta
+wykrywa dopiero worker. Stress test: `helpers/stresstest-account.sh <accountId>` (pętla N komend `add-*` dla jednego konta w kontenerze
+`php`, losowa strona/kwota/`--effective-at`, linia podsumowania) i `helpers/stresstest.sh` (purge kolejek `messages`
+i `delay_*` w RabbitMQ, `composer dev:reset`, potem pętle dla wszystkich kont z bazy przez `xargs -P`, domyślnie
+50 × 200 komend, 10 kont naraz; `--no-purge`, `--no-reset`, `--help`). Komendy PHP z `XDEBUG_MODE=off` i opcache
+na dysku (`/tmp/stresstest-opcache`): ~130 ms zamiast ~280 ms na komendę. Komenda `app:account:stress-test` usunięta.
 
 ## API HTTP
 
@@ -170,8 +178,17 @@ Body JSON (wszystkie pola wymagane, dodatkowe pola odrzucane):
     `cardNumber`, `cvv`, `cvc`, `pin`. Payload obcinany do `HTTP_LOG_MAX_PAYLOAD_BYTES` (16 KB) z `payloadTruncated`.
 - `ExceptionListener` loguje obsłużone wyjątki sam (zatrzymuje propagację, więc `ErrorListener` Symfony ich nie
   loguje): 400/422 `warning`, 404 `info`, reszta → odpowiedź 500 „Internal error.” i `critical`.
-- Propagacja `correlationId` do Messengera (stamp, worker bez generowania nowego id) to osobny, jeszcze niezrobiony krok.
-- Testy: handler `monolog.handler.test` (`when@test`, kanały `http`, `app`); `HttpLoggingTest` (funkcjonalny).
+- Messenger: `CorrelationIdMiddleware` (pierwszy na `command.bus`, `event.bus`, `query.bus`) przy wysyłce dokłada
+  `CorrelationIdStamp` z bieżącym id (brak id → nowy UUID v7), przy odbiorze (`ReceivedStamp`, worker i transport `sync`)
+  ustawia id z wiadomości w `CorrelationIdStorage`. Wiadomość bez stampu w workerze dostaje nowy id i log `info`
+  „Received message without correlationId…” (kanał `messenger`). Id **nie** jest przywracany po obsłudze, bo zdarzenia
+  z `DispatchAfterCurrentBusStamp` przechodzą przez middleware dopiero po handlerze; czyści go reset serwisów po każdej
+  wiadomości (`ResetServicesListener`). Retry i transport `failed` zachowują stamp.
+- CLI: `ConsoleCorrelationIdListener` (`console.command`) daje każdemu uruchomieniu komendy nowy id, z pominięciem
+  `messenger:consume` i `messenger:failed:retry` (tam id pochodzi z wiadomości). Przyjmowanie id z zewnątrz w CLI (np.
+  `CORRELATION_ID`) i logi `MessageReceived`/`MessageHandled` (jak `HttpRequest`/`HttpResponse`): do zrobienia później.
+- Testy: handler `monolog.handler.test` (`when@test`, kanały `http`, `app`, `messenger`); `HttpLoggingTest`,
+  `ConsoleCorrelationIdTest` (funkcjonalne), `CorrelationIdMiddlewareTest` (integracyjny).
 
 ## Testy
 
@@ -179,7 +196,7 @@ Body JSON (wszystkie pola wymagane, dodatkowe pola odrzucane):
   `ExceptionListener`, wyjątki HTTP),
 - `tests/Integration` (handlery, listenery, repozytoria, implementacje busów, serializacja komunikatów
   `MessageSerializationTest`; prawdziwa baza `*_test`, rollback przez DAMA),
-- `tests/Functional` (komendy CLI przez `CommandTester`; `create`/`add-*` sprawdzają transport `sync` i stan bazy;
+- `tests/Functional` (komendy CLI przez `CommandTester`; `create` sprawdza transport `sync` i stan bazy, `add-*` wysyłkę do `rabbit`;
   endpoint HTTP przez `WebTestCase` w `AccountEntryControllerTest`: konto zakładane w `setUp()`, komendy sprawdzane
   `getSentMessages('rabbit')`, błędy przez pełne ciało JSON odpowiedzi).
 - Dispatch w trybie `SYNC` jest widoczny w `getDispatchedMessages()` dwa razy (wywołanie + ponowny dispatch przez
@@ -202,8 +219,6 @@ W-5 (CLI synchroniczne), S-1.
 - Równoległe zapisy na tym samym koncie kończą się `OptimisticLockException` przy flushu; `RetryStrategy` ponawia je
   bez limitu (co 1 s), a `doctrine_ping_connection` resetuje zamknięty EntityManager przed kolejną wiadomością.
 - Nazwy listenerów nie pasują do zdarzeń (`AccountCreditAddedListener` obsługuje `AccountCreditUpdated`).
-- **Błąd:** `AccountDebitAddedListener::__invoke()` przyjmuje `AccountCreditUpdated` (zamiast `AccountDebitUpdated`),
-  więc reaguje na zdarzenia credit i loguje je jako debit; na `AccountDebitUpdated` nie reaguje nikt. Brak testu.
 - Duplikat nazwy konta w trybie async (worker) nadal jest ponawiany 4× jak błąd przejściowy (brak sprawdzenia
   w handlerze ani walidacji `AccountName`); w CLI (sync) kończy się błędem.
 - Listenery credit/debit tylko logują (`critical` przy braku konta, `info` w pozostałych przypadkach).

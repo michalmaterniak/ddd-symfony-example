@@ -20,7 +20,6 @@ use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
-use Symfony\Component\Messenger\Exception\HandlerFailedException;
 
 final class AddCreditCommandTest extends KernelTestCase
 {
@@ -42,7 +41,7 @@ final class AddCreditCommandTest extends KernelTestCase
     }
 
     #[Test]
-    public function addsCreditEntrySynchronously(): void
+    public function queuesCreditEntryAsynchronously(): void
     {
         // when
         $status = $this->tester->execute([
@@ -55,38 +54,35 @@ final class AddCreditCommandTest extends KernelTestCase
         self::assertSame(Command::SUCCESS, $status);
 
         $messages = self::getDispatchedMessages('command.bus');
-        self::assertSame('sync', $messages[0]->transport);
+        self::assertCount(1, $messages);
+        self::assertSame('rabbit', $messages[0]->transport);
         $command = $messages[0]->message;
         self::assertInstanceOf(AddAccountEntryCreditCommand::class, $command);
         self::assertSame(self::ACCOUNT_ID, $command->accountId->toRfc4122());
         self::assertSame(150, $command->credit->value);
         self::assertEquals(new DateTimeImmutable('2026-10-01 12:00:00'), $command->effectiveAt);
 
-        self::assertSame(
-            ['amount' => 150, 'side' => 'credit'],
-            $this->connection()->fetchAssociative(
-                'SELECT amount, side FROM account_entry WHERE id = :id',
-                ['id' => $command->accountEntryId->toRfc4122()],
-            ),
-        );
+        // handled later by a worker
+        self::assertSame(0, $this->connection()->fetchOne('SELECT COUNT(*) FROM account_entry'));
         self::assertStringContainsString(
-            'Added credit of 150 to account '.self::ACCOUNT_ID,
+            'Ordered credit of 150 to account '.self::ACCOUNT_ID,
             (string) preg_replace('/\s+/', ' ', $this->tester->getDisplay()),
         );
     }
 
     #[Test]
-    public function eachRunAddsNewEntry(): void
+    public function eachRunQueuesNewEntry(): void
     {
         // when
         $this->tester->execute(['account-id' => self::ACCOUNT_ID, 'credit' => '150']);
         $this->tester->execute(['account-id' => self::ACCOUNT_ID, 'credit' => '150']);
 
         // then
-        self::assertSame(2, $this->connection()->fetchOne(
-            'SELECT COUNT(*) FROM account_entry WHERE account_id = :id',
-            ['id' => self::ACCOUNT_ID],
-        ));
+        $sent = self::getSentMessages('rabbit');
+        self::assertCount(2, $sent);
+        self::assertInstanceOf(AddAccountEntryCreditCommand::class, $sent[0]);
+        self::assertInstanceOf(AddAccountEntryCreditCommand::class, $sent[1]);
+        self::assertNotEquals($sent[0]->accountEntryId, $sent[1]->accountEntryId);
     }
 
     #[Test]
@@ -106,14 +102,14 @@ final class AddCreditCommandTest extends KernelTestCase
     }
 
     #[Test]
-    public function failsForUnknownAccountInsteadOfReportingSuccess(): void
+    public function queuesEntryForUnknownAccountLeavingTheCheckToWorker(): void
     {
-        // then
-        $this->expectException(HandlerFailedException::class);
-        $this->expectExceptionMessage('Account not found');
-
         // when
-        $this->tester->execute(['account-id' => new AccountId()->toRfc4122(), 'credit' => '150']);
+        $status = $this->tester->execute(['account-id' => new AccountId()->toRfc4122(), 'credit' => '150']);
+
+        // then
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertCount(1, self::getSentMessages('rabbit'));
     }
 
     /**

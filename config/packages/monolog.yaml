@@ -39,7 +39,7 @@ when@test:
             test:
                 type: test
                 level: debug
-                channels: [http, app]
+                channels: [http, app, messenger]
 
 when@prod:
     monolog:
