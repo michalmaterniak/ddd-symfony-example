@@ -132,6 +132,7 @@ final class AddAccountCreditHandlerTest extends KernelTestCase
         $eventBus->dispatch(new Envelope($event, [new ReceivedStamp('rabbit')]));
 
         // test listenera
+        // @phpstan-ignore symfonyContainer.serviceNotFound
         $logHandler = self::getContainer()->get('monolog.handler.test');
         self::assertInstanceOf(TestHandler::class, $logHandler);
         $records = array_values(array_filter(

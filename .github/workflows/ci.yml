@@ -1,0 +1,94 @@
+name: CI
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    php-image:
+        name: Build PHP image
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        outputs:
+            image: ${{ steps.image.outputs.name }}
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Compute image name
+              id: image
+              run: |
+                  repository="${GITHUB_REPOSITORY,,}"
+                  echo "name=ghcr.io/${repository}/php85:${{ hashFiles('.docker/php85/**') }}" >> "$GITHUB_OUTPUT"
+
+            - uses: docker/setup-buildx-action@v3
+
+            - uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - uses: docker/build-push-action@v6
+              with:
+                  context: .docker/php85
+                  push: true
+                  tags: ${{ steps.image.outputs.name }}
+                  cache-from: type=gha,scope=php85
+                  cache-to: type=gha,scope=php85,mode=max
+
+    test:
+        name: composer test
+        needs: php-image
+        runs-on: ubuntu-latest
+        container:
+            image: ${{ needs.php-image.outputs.image }}
+            credentials:
+                username: ${{ github.actor }}
+                password: ${{ secrets.GITHUB_TOKEN }}
+            # the image runs as "user" (uid 1000), the runner workspace belongs to uid 1001
+            options: --user root
+        services:
+            postgres:
+                image: postgres:18.6-trixie
+                env:
+                    POSTGRES_USER: root
+                    POSTGRES_PASSWORD: root
+                    POSTGRES_DB: symfony8
+                options: >-
+                    --health-cmd "pg_isready -U root -d symfony8"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 10
+        env:
+            # DATABASE_URL from .env already points to the "postgres" host
+            XDEBUG_MODE: 'off'
+            COMPOSER_ALLOW_SUPERUSER: 1
+            COMPOSER_CACHE_DIR: /tmp/composer-cache
+        steps:
+            - uses: actions/checkout@v5
+
+            - uses: actions/cache@v4
+              with:
+                  path: /tmp/composer-cache
+                  key: composer-${{ hashFiles('composer.lock') }}
+                  restore-keys: composer-
+
+            - name: Install dependencies
+              run: composer install --no-interaction --no-progress --prefer-dist
+
+            - name: Prepare test database
+              run: composer test:reset
+
+            - name: Run tests
+              run: composer test

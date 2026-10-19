@@ -30,6 +30,10 @@ Zmiany stanu idą asynchronicznie przez RabbitMQ i workery (wyjątek: `app:accou
 - Composer scripts: `composer test` (= `test:sa`: cs check + phpcs + phpstan, potem `test:phpunit`: paratest),
   `db:reset`, `test:reset`, `dev:reset` (z fixtures), `cs-fix`. Konfiguracja PHPUnit: wersjonowany `phpunit.dist.xml`
   (`phpunit.xml` jest ignorowany, służy do lokalnych nadpisań).
+- CI: `.github/workflows/ci.yml` (push na `master`, PR, ręcznie). Job `php-image` buduje `.docker/php85` i pushuje do
+  GHCR (`ghcr.io/<repo>/php85:<hash .docker/php85>`, cache warstw `type=gha`); job `test` działa w tym obrazie
+  (`--user root`, `XDEBUG_MODE=off`) z serwisem `postgres:18.6-trixie` pod hostem `postgres`, potem
+  `composer install`, `composer test:reset`, `composer test`. RabbitMQ niepotrzebny (`in-memory://` w testach).
 
 ## Struktura kodu
 
