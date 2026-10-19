@@ -67,7 +67,8 @@ src/
     │                             # NullMessageOption (null object → ASYNC), MessageModeOption::sync()/async()
     ├── Domain/                   # AggregateRoot (pullDomainEvents), DomainEvent (marker),
     │                             # ValueObject/Amount, Exception/DomainException
-    ├── Presentation/             # RequestValidation (interfejs obiektów requestu: validate())
+    ├── Presentation/             # RequestValidation (interfejs: validate()), AbstractRequest<TPayload, TParameters>
+    │                             # (baza obiektów requestu: RequestStack + walidacja w konstruktorze)
     └── Infrastructure/
         ├── Console/              # EventListener/ConsoleCorrelationIdListener (nowy correlationId na komendę CLI)
         ├── Http/                 # EventListener/ExceptionListener (wyjątki → JSON),
@@ -146,8 +147,10 @@ Body JSON (wszystkie pola wymagane, dodatkowe pola odrzucane):
 - `effectiveAt` w formacie `DateTimeInterface::ATOM`, czyli **ze strefą czasową** (`+02:00` lub `Z`); data bez strefy
   (`2026-10-01 12:00:00`, `2026-10-01T12:00:00`) jest odrzucana. Strefa przechodzi do komendy bez zmian.
 - `PostAddAccountEntryRequest` nie używa `#[MapRequestPayload]`: to serwis autowirowany jako argument akcji,
-  który w konstruktorze czyta request z `RequestStack` i waliduje go Validatorem (najpierw parametry URL, potem
-  payload). Działa przy PHP-FPM (nowy kontener na request); przy FrankenPHP/worker mode trzeba to przemyśleć.
+  dziedziczy po `Shared\Presentation\AbstractRequest`, który w konstruktorze czyta request z `RequestStack` i waliduje
+  go Validatorem (najpierw parametry URL → `UrlParametersValidationException`, potem payload →
+  `RequestValidationException`). Podklasa podaje tylko `getParametersConstraints()` (czytane są atrybuty routingu
+  nazwane w `Collection`) i `getPayloadConstraints()` oraz gettery. Działa przy PHP-FPM (nowy kontener na request); przy FrankenPHP/worker mode trzeba to przemyśleć.
 - Kontroler sprawdza istnienie konta (`AccountRepository::findById`), potem dispatchuje
   `AddAccountEntryCreditCommand` / `AddAccountEntryDebitCommand` **asynchronicznie** (`rabbit`).
 - Odpowiedzi (JSON budowany przez `ExceptionListener`, nasłuchuje `kernel.exception` dla całej aplikacji):
