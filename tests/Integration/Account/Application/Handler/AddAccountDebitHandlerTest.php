@@ -13,17 +13,24 @@ use App\Account\Domain\Repository\AccountRepository;
 use App\Account\Domain\ValueObject\AccountDebit;
 use App\Account\Domain\ValueObject\AccountDescription;
 use App\Account\Domain\ValueObject\AccountEntryId;
+use App\Account\Domain\ValueObject\AccountEntrySide;
 use App\Account\Domain\ValueObject\AccountId;
 use App\Account\Domain\ValueObject\AccountName;
 use App\Tests\Support\Messenger\DispatchedMessage;
 use App\Tests\Support\Messenger\DispatchedMessagesAssertionTrait;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
+use Monolog\Handler\TestHandler;
+use Monolog\Level;
+use Monolog\LogRecord;
 use PHPUnit\Framework\Attributes\Test;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\Test\ClockSensitiveTrait;
+use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Exception\UnrecoverableMessageHandlingException;
+use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Messenger\Stamp\ReceivedStamp;
 
 final class AddAccountDebitHandlerTest extends KernelTestCase
 {
@@ -92,7 +99,7 @@ final class AddAccountDebitHandlerTest extends KernelTestCase
     }
 
     #[Test]
-    public function publishesDebitUpdatedEventToRabbit(): void
+    public function publishesDebitUpdatedEventToRabbitAndListenerHandlesIt(): void
     {
         // given
         $this->createAccount();
@@ -102,20 +109,49 @@ final class AddAccountDebitHandlerTest extends KernelTestCase
         $this->handler->__invoke($this->command(150, $entryId));
 
         // then
+        $event = new AccountDebitUpdated(
+            $entryId,
+            $this->accountId,
+            new AccountDebit(150),
+            $this->effectiveAt,
+            new DateTimeImmutable('2026-10-12 10:00:00'),
+        );
         self::assertDispatchedMessages(
             [
                 new DispatchedMessage(
-                    new AccountDebitUpdated(
-                        $entryId,
-                        $this->accountId,
-                        new AccountDebit(150),
-                        $this->effectiveAt,
-                        new DateTimeImmutable('2026-10-12 10:00:00'),
-                    ),
+                    $event,
                     'rabbit',
                 ),
             ],
             'event.bus',
+        );
+        self::assertEquals([$event], self::getSentMessages('rabbit'));
+
+        /** @var MessageBusInterface $eventBus */
+        $eventBus = self::getContainer()->get('event.bus');
+        $eventBus->dispatch(new Envelope($event, [new ReceivedStamp('rabbit')]));
+
+        // test listenera
+        // defined only in when@test, PHPStan reads the dev container
+        // @phpstan-ignore symfonyContainer.serviceNotFound
+        $logHandler = self::getContainer()->get('monolog.handler.test');
+        self::assertInstanceOf(TestHandler::class, $logHandler);
+        $records = array_values(array_filter(
+            $logHandler->getRecords(),
+            static fn (LogRecord $record): bool => 'Account debit updated' === $record->message,
+        ));
+        self::assertCount(1, $records);
+        self::assertSame('app', $records[0]->channel);
+        self::assertSame(Level::Info, $records[0]->level);
+        self::assertEquals(
+            [
+                'side' => AccountEntrySide::DEBIT,
+                'accountId' => $this->accountId,
+                'amount' => new AccountDebit(150),
+                'effectiveAt' => $this->effectiveAt,
+                'accountEntryId' => $entryId,
+            ],
+            $records[0]->context,
         );
     }
 
