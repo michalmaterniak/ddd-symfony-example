@@ -1,4 +1,4 @@
-# symfony8
+# symfony8 - DDD, Hexagonal example
 
 A Symfony 8.1 application (PHP 8.5 in the container, `>=8.4` required) that models
 ledger accounts with entries on the Debit and Credit sides. The project is built
