@@ -1,0 +1,14 @@
+# build context of the root Dockerfile (production image); dependencies and cache are built inside the image
+.git
+.github
+.idea
+.claude
+.docker
+vendor
+var
+tests
+.env.local
+.env.*.local
+.php-cs-fixer.cache
+.phpunit.cache
+docker-compose*.yml
